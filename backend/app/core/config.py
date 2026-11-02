@@ -111,6 +111,9 @@ class Settings(BaseSettings):
     NASA_POWER_TIMEOUT_SECONDS: float = 30.0
     NASA_POWER_COMMUNITY: str = "AG"
 
+    # Database Configuration
+    DATABASE_URL: str = "sqlite:///./data/agroverse.db"
+
     # Allowed CORS Origins
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",

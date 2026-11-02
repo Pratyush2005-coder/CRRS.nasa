@@ -1,9 +1,17 @@
-"""Main FastAPI application entry point."""
-
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import api_router
 from app.core.config import settings
+from app.core.database import init_db
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan managing startup and shutdown tasks."""
+    init_db()
+    yield
+
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -16,6 +24,7 @@ app = FastAPI(
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan,
 )
 
 # Configure Cross-Origin Resource Sharing (CORS) for React frontend integration
@@ -40,4 +49,5 @@ async def root():
         "docs": "/docs",
         "api_health": f"{settings.API_V1_STR}/health",
         "climate_endpoint": f"{settings.API_V1_STR}/climate",
+        "farms_endpoint": f"{settings.API_V1_STR}/farms",
     }

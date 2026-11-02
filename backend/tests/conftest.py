@@ -14,10 +14,45 @@ if str(backend_dir) not in sys.path:
 from app.main import app  # noqa: E402
 
 
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
+from app.core.database import Base, get_db
+
+# Isolated in-memory SQLite database for testing
+SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///:memory:"
+
+test_engine = create_engine(
+    SQLALCHEMY_TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
+
+
+@pytest.fixture(autouse=True)
+def setup_test_db():
+    """Create fresh database tables before each test and drop afterwards."""
+    import app.models.farm  # noqa: F401
+    Base.metadata.create_all(bind=test_engine)
+    yield
+    Base.metadata.drop_all(bind=test_engine)
+
+
 @pytest.fixture
-def client() -> TestClient:
-    """FastAPI TestClient fixture."""
-    return TestClient(app)
+def client(setup_test_db) -> TestClient:
+    """FastAPI TestClient fixture with isolated in-memory database."""
+    def override_get_db():
+        db = TestingSessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

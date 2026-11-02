@@ -9,6 +9,8 @@ This service serves as the core intelligence engine, ingesting, parsing, and val
 ## 1. Features
 
 * **NASA POWER Agroclimatology Integration:** Automated ingestion of daily precipitation, 2m temperature (mean, min, max), solar radiation, and relative humidity.
+* **Farm Profile Management (CRUD):** Complete management of farm locations, boundaries, soil classifications, irrigation systems, and historical crop rotation sequences.
+* **Database & Persistence:** SQLAlchemy 2.0 with file-based SQLite database (`backend/data/agroverse.db`), UUID identifiers, and clean repository-service abstraction for future PostGIS migration.
 * **Scientific Integrity & Provenance:**
   * Parameter-specific spatial resolution and observational source tracking.
   * Explicit detection and handling of NASA fill values (`-999.0`) mapped to `null` with missing indicators.
@@ -27,19 +29,27 @@ backend/
 │   ├── main.py              # Application entry point, CORS middleware, API mounting
 │   ├── core/
 │   │   ├── config.py        # Settings via Pydantic-Settings & scientific metadata registry
+│   │   └── database.py      # SQLAlchemy 2.0 engine, SessionLocal, and DB table initialization
+│   ├── models/
+│   │   └── farm.py          # SQLAlchemy ORM model for Farm Profiles
 │   ├── api/
 │   │   └── routes/
 │   │       ├── health.py    # GET /api/health
-│   │       └── climate.py   # GET /api/climate
+│   │       ├── climate.py   # GET /api/climate
+│   │       └── farms.py     # CRUD /api/farms endpoints
 │   ├── schemas/
 │   │   ├── health.py        # Health schemas
-│   │   └── climate.py       # Pydantic models for queries, daily records, and metadata
+│   │   ├── climate.py       # Pydantic models for queries, daily records, and metadata
+│   │   └── farm.py          # Pydantic models for Farm CRUD, Enums, and responses
 │   └── services/
-│       └── nasa_power.py    # Asynchronous NASA POWER client and Pandas aggregator
+│       ├── nasa_power.py    # Asynchronous NASA POWER client and Pandas aggregator
+│       └── farm_service.py  # Farm business logic, pagination, and persistence
+├── data/                    # Local SQLite database storage (excluded via .gitignore)
 ├── tests/
-│   ├── conftest.py          # Pytest fixtures and mock NASA responses
+│   ├── conftest.py          # Pytest fixtures, mock NASA payloads, and in-memory DB isolation
 │   ├── test_health.py       # Health check test suite
-│   └── test_climate.py      # Input validation & scientific parsing tests
+│   ├── test_climate.py      # Input validation & scientific parsing tests
+│   └── test_farms.py        # Comprehensive Farm Profile CRUD test suite
 ├── requirements.txt         # Backend Python dependencies
 ├── .env.example             # Configuration defaults
 └── README.md                # This documentation
@@ -187,6 +197,55 @@ GET /api/climate?latitude=28.6139&longitude=77.2090&start_date=2023-01-01&end_da
   ]
 }
 ```
+
+---
+
+### Farm Profile Endpoints (`/api/farms`)
+
+Manages field boundaries, coordinates, soil context, and crop rotation history for agricultural decision-support.
+
+| Method | Endpoint | Description | Status Code |
+|---|---|---|---|
+| `POST` | `/api/farms` | Create a new farm profile | `201 Created` |
+| `GET` | `/api/farms` | List farm profiles (paginated, search & soil filter) | `200 OK` |
+| `GET` | `/api/farms/{farm_id}` | Retrieve farm profile by UUID | `200 OK` / `404` |
+| `PUT` | `/api/farms/{farm_id}` | Full update (replacement) of farm profile | `200 OK` / `404` |
+| `PATCH` | `/api/farms/{farm_id}` | Partial update of farm profile | `200 OK` / `404` |
+| `DELETE` | `/api/farms/{farm_id}` | Delete farm profile | `204 No Content` / `404` |
+
+#### `POST /api/farms` Sample Payload:
+```json
+{
+  "name": "Ludhiana Research Station",
+  "farmer_name": "Dr. Harpreet Singh",
+  "latitude": 30.9010,
+  "longitude": 75.8573,
+  "elevation_m": 244.0,
+  "region": "Punjab",
+  "country": "India",
+  "total_area_hectares": 25.5,
+  "soil_type": "sandy_loam",
+  "soil_ph": 7.2,
+  "organic_matter_pct": 1.8,
+  "primary_irrigation": "canal",
+  "current_crop": "Wheat",
+  "current_crop_planting_date": "2023-11-10",
+  "previous_crops": [
+    {
+      "crop_name": "Rice (Basmati)",
+      "harvest_year": 2023,
+      "season": "Kharif",
+      "yield_tonnes_per_hectare": 4.2
+    }
+  ]
+}
+```
+
+#### Query Parameters for `GET /api/farms`:
+* `skip`: Number of records to skip (default `0`, minimum `0`).
+* `limit`: Page size (default `20`, range `1` to `100`).
+* `search`: Case-insensitive text filter across name, farmer name, region, or country.
+* `soil_type`: Filter by soil enum (`clay`, `sandy_loam`, `silt_loam`, `clay_loam`, `sandy`, `loam`, `peaty`, `saline`).
 
 ---
 
