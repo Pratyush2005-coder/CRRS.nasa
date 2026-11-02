@@ -35,6 +35,24 @@ from app.schemas.crop import (
     WaterRequirement,
 )
 
+from app.schemas.climate_analyzer import (
+    ClimateIntelligenceReport,
+    ColdRiskIndicators,
+    ColdRiskLevel,
+    CompletenessCategory,
+    CropClimateSuitability,
+    CropGDDResult,
+    HeatRiskIndicators,
+    HeatRiskLevel,
+    MissingDataAnalysis,
+    MonthlyRainfall,
+    RainfallAnalysis,
+    SeasonalRainfall,
+    TemperatureAnalysis,
+    ThermalCompatibility,
+    WaterCompatibility,
+)
+
 __all__ = [
     "HealthResponse",
     "ClimateResponse",
@@ -63,4 +81,19 @@ __all__ = [
     "TemperatureRequirement",
     "WaterDemandClass",
     "WaterRequirement",
+    "ClimateIntelligenceReport",
+    "ColdRiskIndicators",
+    "ColdRiskLevel",
+    "CompletenessCategory",
+    "CropClimateSuitability",
+    "CropGDDResult",
+    "HeatRiskIndicators",
+    "HeatRiskLevel",
+    "MissingDataAnalysis",
+    "MonthlyRainfall",
+    "RainfallAnalysis",
+    "SeasonalRainfall",
+    "TemperatureAnalysis",
+    "ThermalCompatibility",
+    "WaterCompatibility",
 ]

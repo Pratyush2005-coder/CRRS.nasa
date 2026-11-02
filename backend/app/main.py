@@ -49,6 +49,7 @@ async def root():
         "docs": "/docs",
         "api_health": f"{settings.API_V1_STR}/health",
         "climate_endpoint": f"{settings.API_V1_STR}/climate",
+        "climate_analysis_endpoint": f"{settings.API_V1_STR}/climate/analysis",
         "farms_endpoint": f"{settings.API_V1_STR}/farms",
         "crops_endpoint": f"{settings.API_V1_STR}/crops/catalog",
     }
