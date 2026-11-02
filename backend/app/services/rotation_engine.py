@@ -12,7 +12,7 @@ Scientific restrictions:
 - Clearly label heuristic scoring.
 """
 
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Dict, List, Optional, Set, Tuple, Any
 
 from app.schemas.rotation import (
@@ -162,21 +162,36 @@ class RotationEngine:
 
         irrigation_required = (crop_id == "rice" and season == NormalizedSeason.BORO)
 
-        return CropSeasonFit(
-            crop_id=crop.crop_id,
-            crop_name=crop.crop_name,
-            normalized_season=season,
-            thermal_compatibility=(
-                suitability.thermal_compatibility if suitability else ThermalCompatibility.MARGINAL
-            ),
-            water_compatibility=(
-                suitability.water_compatibility if suitability else WaterCompatibility.DEFICIT_RISK
-            ),
-            overall_climate_score=suitability.overall_climate_score if suitability else None,
-            agronomic_caveats=suitability.agronomic_caveats if suitability else [],
-            irrigation_required=irrigation_required,
-            evidence_level=EvidenceLevel.VERIFIED,
-        )
+        if suitability is not None:
+            # Climate suitability data available - VERIFIED evidence
+            return CropSeasonFit(
+                crop_id=crop.crop_id,
+                crop_name=crop.crop_name,
+                normalized_season=season,
+                thermal_compatibility=suitability.thermal_compatibility,
+                water_compatibility=suitability.water_compatibility,
+                overall_climate_score=suitability.overall_climate_score,
+                agronomic_caveats=suitability.agronomic_caveats,
+                irrigation_required=irrigation_required,
+                evidence_level=EvidenceLevel.VERIFIED,
+            )
+        else:
+            # No climate suitability data for this crop - INSUFFICIENT_DATA
+            # Use neutral scores that don't reward or penalize
+            return CropSeasonFit(
+                crop_id=crop.crop_id,
+                crop_name=crop.crop_name,
+                normalized_season=season,
+                thermal_compatibility=ThermalCompatibility.MARGINAL,
+                water_compatibility=WaterCompatibility.DEFICIT_RISK,
+                overall_climate_score=None,
+                agronomic_caveats=[
+                    f"No climate suitability data available for {crop.crop_name} in {season.value} season. "
+                    "Thermal and water compatibility defaulted to conservative estimates."
+                ],
+                irrigation_required=irrigation_required,
+                evidence_level=EvidenceLevel.INSUFFICIENT_DATA,
+            )
 
     def get_unresolved_seasons(self, crop_id: str) -> Set[NormalizedSeason]:
         """Return unresolved season mappings for a crop (for transparency)."""
@@ -397,18 +412,29 @@ class RotationEngine:
         if current_fit.agronomic_caveats:
             rationale += f". Caveats: {'; '.join(current_fit.agronomic_caveats)}"
 
+        # Use evidence level from the fit (VERIFIED or INSUFFICIENT_DATA)
+        evidence_level = current_fit.evidence_level
+
         return RuleEvaluation(
             rule=RotationRule.THERMAL_SUITABILITY,
             passed=passed,
             score=score,
             rationale=rationale,
             evidence=RuleEvidence(
-                level=EvidenceLevel.VERIFIED,
-                source="climate_analyzer",
-                citation="NASA POWER MERRA-2, FAO-56 thermal thresholds",
+                level=evidence_level,
+                source="climate_analyzer" if evidence_level == EvidenceLevel.VERIFIED else "climate_analyzer_missing",
+                citation=(
+                    "NASA POWER MERRA-2, FAO-56 thermal thresholds"
+                    if evidence_level == EvidenceLevel.VERIFIED
+                    else "No climate suitability data available for this crop/season"
+                ),
             ),
             caveats=current_fit.agronomic_caveats.copy(),
-            data_gaps=[],
+            data_gaps=(
+                []
+                if evidence_level == EvidenceLevel.VERIFIED
+                else ["Crop-specific thermal suitability not available from climate analyzer"]
+            ),
         )
 
     def _evaluate_water_suitability(
@@ -427,7 +453,8 @@ class RotationEngine:
         if current_fit.agronomic_caveats:
             rationale += f". Caveats: {'; '.join(current_fit.agronomic_caveats)}"
 
-        evidence_level = EvidenceLevel.VERIFIED
+        # Use evidence level from the fit (propagated from climate analyzer)
+        evidence_level = current_fit.evidence_level
         if irrigation_type and current_fit.irrigation_required:
             feas = self.get_irrigation_feasibility(
                 current_fit.crop_id, current_fit.normalized_season, irrigation_type
@@ -436,6 +463,17 @@ class RotationEngine:
                 evidence_level = EvidenceLevel.HEURISTIC
                 rationale += ". Irrigation feasibility requires local confirmation."
 
+        data_gaps = []
+        if evidence_level == EvidenceLevel.INSUFFICIENT_DATA:
+            data_gaps.append("Crop-specific water suitability not available from climate analyzer")
+
+        # Determine source based on evidence level (consistent with thermal evaluator)
+        source = (
+            "climate_analyzer_missing"
+            if evidence_level == EvidenceLevel.INSUFFICIENT_DATA
+            else "climate_analyzer"
+        )
+
         return RuleEvaluation(
             rule=RotationRule.WATER_SUITABILITY,
             passed=passed,
@@ -443,11 +481,11 @@ class RotationEngine:
             rationale=rationale,
             evidence=RuleEvidence(
                 level=evidence_level,
-                source="climate_analyzer",
+                source=source,
                 citation="NASA POWER precipitation, FAO-56 crop water requirements",
             ),
             caveats=current_fit.agronomic_caveats.copy(),
-            data_gaps=[],
+            data_gaps=data_gaps,
         )
 
     def _evaluate_family_diversification(
@@ -1223,7 +1261,7 @@ class RotationEngine:
             climate_summary=climate_summary,
             strategies=strategies,
             primary_strategy=primary,
-            generated_at=datetime.utcnow().isoformat() + "Z",
+            generated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             engine_version="1.0.0",
         )
 
@@ -1235,6 +1273,14 @@ class RotationEngine:
     ) -> RotationRecommendation:
         """Generate recommendation using an existing farm profile."""
         # Convert farm profile to RotationRequest
+        # Note: FarmResponse uses 'previous_crops' field (not 'crop_history')
+        previous_crops = []
+        if hasattr(farm_profile, 'previous_crops') and farm_profile.previous_crops:
+            previous_crops = [
+                h.crop_name.lower().replace(" ", "_").replace("-", "_")
+                for h in farm_profile.previous_crops
+            ]
+
         rot_request = RotationRequest(
             latitude=farm_profile.latitude,
             longitude=farm_profile.longitude,
@@ -1243,7 +1289,7 @@ class RotationEngine:
             soil_ph=farm_profile.soil_ph,
             organic_matter_pct=farm_profile.organic_matter_pct,
             irrigation_type=farm_profile.primary_irrigation,
-            previous_crops=[h.crop_name.lower().replace(" ", "_") for h in farm_profile.crop_history] if farm_profile.crop_history else [],
+            previous_crops=previous_crops,
             max_cycle_years=request.max_cycle_years,
             exclude_crops=request.exclude_crops,
         )
@@ -1276,7 +1322,6 @@ class RotationEngine:
             "cold_risk_level": climate_report.cold_risk.frost_hazard_level.value,
         }
 
-        from datetime import datetime
         return RotationRecommendation(
             farm_id=request.farm_id,
             latitude=farm_profile.latitude,
@@ -1285,7 +1330,7 @@ class RotationEngine:
             climate_summary=climate_summary,
             strategies=strategies,
             primary_strategy=primary,
-            generated_at=datetime.utcnow().isoformat() + "Z",
+            generated_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             engine_version="1.0.0",
         )
 

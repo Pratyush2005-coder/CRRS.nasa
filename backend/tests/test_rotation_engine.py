@@ -1,6 +1,6 @@
 """Tests for Rotation Engine (Phase 3B)."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -14,12 +14,15 @@ from app.schemas.rotation import (
     IrrigationFeasibility,
     FallowReason,
     RotationRequest,
+    FarmRotationRequest,
     VERIFIED_SEASON_MAP,
     UNRESOLVED_SEASON_MAP,
     BORO_OCCUPIED_SLOTS,
+    THERMAL_SCORE_MAP,
+    WATER_SCORE_MAP,
 )
 from app.services.rotation_engine import SLOT_TO_NORMALIZED_SEASON, get_slots_for_years, get_slot_year
-from app.schemas.farm import IrrigationType
+from app.schemas.farm import IrrigationType, CropHistoryRecord
 from app.schemas.climate import (
     ClimateMetadata,
     Coordinates,
@@ -55,7 +58,7 @@ def mock_climate_report() -> ClimateIntelligenceReport:
     return ClimateIntelligenceReport(
         metadata=ClimateMetadata(
             data_source="NASA POWER Test",
-            retrieval_timestamp=datetime.utcnow(),
+            retrieval_timestamp=datetime.now(timezone.utc),
             coordinates=Coordinates(latitude=22.57, longitude=88.36),
             date_range=DateRange(start_date="2023-01-01", end_date="2023-12-31"),
             parameters_info={},
@@ -965,3 +968,112 @@ def test_get_slot_year():
     assert get_slot_year(SeasonSlot.Y1_AMAN) == 1
     assert get_slot_year(SeasonSlot.Y3_RABI) == 3
     assert get_slot_year(SeasonSlot.Y5_SUMMER) == 5
+
+
+# -------------------------------------------------------------------------
+# Regression Tests for Phase 3B.1 Fixes
+# -------------------------------------------------------------------------
+
+
+def test_get_crop_season_fit_missing_suitability_returns_insufficient_data(engine: RotationEngine, mock_climate_report):
+    """Test get_crop_season_fit returns INSUFFICIENT_DATA when climate suitability is missing."""
+    # Create a copy of the mock report with empty crop_suitability
+    empty_report = mock_climate_report.model_copy(update={"crop_suitability": []})
+
+    fit = engine.get_crop_season_fit("rice", NormalizedSeason.AMAN, empty_report)
+
+    assert fit is not None
+    assert fit.evidence_level == EvidenceLevel.INSUFFICIENT_DATA
+    assert fit.thermal_compatibility == ThermalCompatibility.MARGINAL
+    assert fit.water_compatibility == WaterCompatibility.DEFICIT_RISK
+    assert fit.overall_climate_score is None
+    assert any("No climate suitability data available" in c for c in fit.agronomic_caveats)
+
+
+def test_thermal_evaluator_insufficient_data_propagation(engine: RotationEngine, mock_climate_report):
+    """Test thermal evaluator correctly propagates INSUFFICIENT_DATA evidence level and data gaps."""
+    from app.schemas.rotation import CropSeasonFit
+
+    fit = CropSeasonFit(
+        crop_id="rice",
+        crop_name="Rice (Paddy)",
+        normalized_season=NormalizedSeason.AMAN,
+        thermal_compatibility=ThermalCompatibility.MARGINAL,
+        water_compatibility=WaterCompatibility.DEFICIT_RISK,
+        overall_climate_score=None,
+        agronomic_caveats=["No climate suitability data available for Rice (Paddy) in aman season. Thermal and water compatibility defaulted to conservative estimates."],
+        irrigation_required=False,
+        evidence_level=EvidenceLevel.INSUFFICIENT_DATA,
+    )
+
+    eval_ = engine._evaluate_thermal_suitability(None, fit, mock_climate_report)
+
+    assert eval_.rule == RotationRule.THERMAL_SUITABILITY
+    assert eval_.evidence.level == EvidenceLevel.INSUFFICIENT_DATA
+    assert eval_.evidence.source == "climate_analyzer_missing"
+    assert eval_.evidence.citation == "No climate suitability data available for this crop/season"
+    assert "Crop-specific thermal suitability not available from climate analyzer" in eval_.data_gaps
+    assert eval_.score == THERMAL_SCORE_MAP[ThermalCompatibility.MARGINAL]
+
+
+def test_water_evaluator_insufficient_data_propagation(engine: RotationEngine, mock_climate_report):
+    """Test water evaluator correctly propagates INSUFFICIENT_DATA evidence level and data gaps."""
+    from app.schemas.rotation import CropSeasonFit
+
+    fit = CropSeasonFit(
+        crop_id="rice",
+        crop_name="Rice (Paddy)",
+        normalized_season=NormalizedSeason.AMAN,
+        thermal_compatibility=ThermalCompatibility.MARGINAL,
+        water_compatibility=WaterCompatibility.DEFICIT_RISK,
+        overall_climate_score=None,
+        agronomic_caveats=["No climate suitability data available for Rice (Paddy) in aman season. Thermal and water compatibility defaulted to conservative estimates."],
+        irrigation_required=False,
+        evidence_level=EvidenceLevel.INSUFFICIENT_DATA,
+    )
+
+    eval_ = engine._evaluate_water_suitability(None, fit, mock_climate_report, None)
+
+    assert eval_.rule == RotationRule.WATER_SUITABILITY
+    assert eval_.evidence.level == EvidenceLevel.INSUFFICIENT_DATA
+    assert eval_.evidence.source == "climate_analyzer_missing"
+    assert "Crop-specific water suitability not available from climate analyzer" in eval_.data_gaps
+    assert eval_.score == WATER_SCORE_MAP[WaterCompatibility.DEFICIT_RISK]
+
+
+def test_generate_recommendation_from_farm_uses_previous_crops(engine: RotationEngine, mock_climate_report):
+    """Test generate_recommendation_from_farm correctly reads previous_crops from farm profile."""
+    from unittest.mock import MagicMock
+
+    # Create a mock farm profile with previous_crops (not crop_history)
+    mock_farm = MagicMock()
+    mock_farm.latitude = 22.57
+    mock_farm.longitude = 88.36
+    mock_farm.soil_type = None
+    mock_farm.soil_ph = None
+    mock_farm.organic_matter_pct = None
+    mock_farm.primary_irrigation = IrrigationType.CANAL
+    mock_farm.previous_crops = [
+        CropHistoryRecord(crop_name="Rice (Paddy)", harvest_year=2023),
+        CropHistoryRecord(crop_name="Wheat", harvest_year=2023),
+    ]
+
+    request = FarmRotationRequest(
+        farm_id="test_farm_123",
+        max_cycle_years=2,
+    )
+
+    # This should not raise an error about crop_history
+    try:
+        result = engine.generate_recommendation_from_farm(
+            request=request,
+            farm_profile=mock_farm,
+            climate_report=mock_climate_report,
+        )
+        # If it succeeds, the previous_crops were read correctly
+        assert result is not None
+        assert result.farm_id == "test_farm_123"
+    except AttributeError as e:
+        if "crop_history" in str(e):
+            pytest.fail("generate_recommendation_from_farm incorrectly tries to access 'crop_history' instead of 'previous_crops'")
+        raise
