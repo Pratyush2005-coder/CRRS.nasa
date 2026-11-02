@@ -50,4 +50,5 @@ async def root():
         "api_health": f"{settings.API_V1_STR}/health",
         "climate_endpoint": f"{settings.API_V1_STR}/climate",
         "farms_endpoint": f"{settings.API_V1_STR}/farms",
+        "crops_endpoint": f"{settings.API_V1_STR}/crops/catalog",
     }

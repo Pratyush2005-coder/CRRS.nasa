@@ -9,6 +9,7 @@ This service serves as the core intelligence engine, ingesting, parsing, and val
 ## 1. Features
 
 * **NASA POWER Agroclimatology Integration:** Automated ingestion of daily precipitation, 2m temperature (mean, min, max), solar radiation, and relative humidity.
+* **Crop Knowledge Base (Pilot: West Bengal):** Verified agronomic database of 7 key regional crops (Rice, Wheat, Lentil, Mustard, Chickpea, Green gram, Maize) covering botanical taxonomy, GDD base temperatures, thermal/water bounds, soil suitability, and biological nitrogen dynamics sourced from ICAR, BCKV, and FAO.
 * **Farm Profile Management (CRUD):** Complete management of farm locations, boundaries, soil classifications, irrigation systems, and historical crop rotation sequences.
 * **Database & Persistence:** SQLAlchemy 2.0 with file-based SQLite database (`backend/data/agroverse.db`), UUID identifiers, and clean repository-service abstraction for future PostGIS migration.
 * **Scientific Integrity & Provenance:**
@@ -36,20 +37,24 @@ backend/
 │   │   └── routes/
 │   │       ├── health.py    # GET /api/health
 │   │       ├── climate.py   # GET /api/climate
-│   │       └── farms.py     # CRUD /api/farms endpoints
+│   │       ├── farms.py     # CRUD /api/farms endpoints
+│   │       └── crops.py     # GET /api/crops/catalog, GET /api/crops/{crop_id}
 │   ├── schemas/
 │   │   ├── health.py        # Health schemas
 │   │   ├── climate.py       # Pydantic models for queries, daily records, and metadata
-│   │   └── farm.py          # Pydantic models for Farm CRUD, Enums, and responses
+│   │   ├── farm.py          # Pydantic models for Farm CRUD, Enums, and responses
+│   │   └── crop.py          # Pydantic models for Crop Knowledge Base & taxonomy
 │   └── services/
 │       ├── nasa_power.py    # Asynchronous NASA POWER client and Pandas aggregator
-│       └── farm_service.py  # Farm business logic, pagination, and persistence
+│       ├── farm_service.py  # Farm business logic, pagination, and persistence
+│       └── crop_catalog.py  # Verified crop knowledge service (West Bengal calibration)
 ├── data/                    # Local SQLite database storage (excluded via .gitignore)
 ├── tests/
 │   ├── conftest.py          # Pytest fixtures, mock NASA payloads, and in-memory DB isolation
 │   ├── test_health.py       # Health check test suite
 │   ├── test_climate.py      # Input validation & scientific parsing tests
-│   └── test_farms.py        # Comprehensive Farm Profile CRUD test suite
+│   ├── test_farms.py        # Comprehensive Farm Profile CRUD test suite
+│   └── test_crops.py        # Crop Knowledge Base verification and filtering test suite
 ├── requirements.txt         # Backend Python dependencies
 ├── .env.example             # Configuration defaults
 └── README.md                # This documentation
@@ -246,6 +251,32 @@ Manages field boundaries, coordinates, soil context, and crop rotation history f
 * `limit`: Page size (default `20`, range `1` to `100`).
 * `search`: Case-insensitive text filter across name, farmer name, region, or country.
 * `soil_type`: Filter by soil enum (`clay`, `sandy_loam`, `silt_loam`, `clay_loam`, `sandy`, `loam`, `peaty`, `saline`).
+
+---
+
+### Crop Knowledge Base Endpoints (`/api/crops`)
+
+Verified agronomic crop profiles calibrated for the West Bengal pilot region. Data is corroborated from ICAR, BCKV, and FAO research standards.
+
+| Method | Endpoint | Description | Status Code |
+|---|---|---|---|
+| `GET` | `/api/crops/catalog` | List all verified crops with agronomic filters | `200 OK` |
+| `GET` | `/api/crops/{crop_id}` | Retrieve comprehensive crop profile with citations | `200 OK` / `404` |
+
+#### Available Pilot Crops:
+* `rice`: Rice (Paddy) (*Oryza sativa*, Poaceae) — Aman, Boro, Aus
+* `wheat`: Wheat (*Triticum aestivum*, Poaceae) — Rabi
+* `lentil`: Lentil (Masoor) (*Lens culinaris*, Fabaceae) — Rabi / Utera
+* `mustard`: Indian Mustard (*Brassica juncea*, Brassicaceae) — Rabi
+* `chickpea`: Chickpea (Bengal Gram) (*Cicer arietinum*, Fabaceae) — Rabi
+* `green_gram`: Green Gram (Mung Bean) (*Vigna radiata*, Fabaceae) — Summer / Pre-Kharif
+* `maize`: Maize (Corn) (*Zea mays*, Poaceae) — Rabi / Kharif
+
+#### Query Parameters for `GET /api/crops/catalog`:
+* `family`: Botanical family (`Poaceae`, `Fabaceae`, `Brassicaceae`, `Solanaceae`, etc.).
+* `season`: Season string match (e.g., `Aman`, `Boro`, `Rabi`, `Aus`).
+* `nitrogen_role`: Nitrogen dynamic (`nitrogen_fixer`, `heavy_feeder`, `moderate_feeder`, `light_feeder`).
+* `water_demand`: Water demand class (`low`, `moderate`, `high`, `very_high`).
 
 ---
 

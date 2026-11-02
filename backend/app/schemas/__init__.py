@@ -18,6 +18,23 @@ from app.schemas.farm import (
     SoilType,
 )
 
+from app.schemas.crop import (
+    BotanicalFamily,
+    ConfidenceLevel,
+    Crop,
+    CropCatalogResponse,
+    CropReference,
+    CropSummary,
+    DurationRange,
+    NitrogenManagement,
+    NitrogenRole,
+    RootingDepthClass,
+    SoilSuitability,
+    TemperatureRequirement,
+    WaterDemandClass,
+    WaterRequirement,
+)
+
 __all__ = [
     "HealthResponse",
     "ClimateResponse",
@@ -32,4 +49,18 @@ __all__ = [
     "FarmUpdate",
     "IrrigationType",
     "SoilType",
+    "BotanicalFamily",
+    "ConfidenceLevel",
+    "Crop",
+    "CropCatalogResponse",
+    "CropReference",
+    "CropSummary",
+    "DurationRange",
+    "NitrogenManagement",
+    "NitrogenRole",
+    "RootingDepthClass",
+    "SoilSuitability",
+    "TemperatureRequirement",
+    "WaterDemandClass",
+    "WaterRequirement",
 ]
