@@ -13,11 +13,16 @@ if str(backend_dir) not in sys.path:
 
 from app.main import app  # noqa: E402
 
+# Disable rate limiting for tests
+from app.core.rate_limiting import limiter
+limiter.enabled = False
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from app.core.database import Base, get_db
+from app.core.security import create_access_token, create_refresh_token
+from app.models.user import User
 
 # Isolated in-memory SQLite database for testing
 SQLALCHEMY_TEST_DATABASE_URL = "sqlite:///:memory:"
@@ -34,14 +39,14 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_
 def setup_test_db():
     """Create fresh database tables before each test and drop afterwards."""
     import app.models.farm  # noqa: F401
+    import app.models.user  # noqa: F401
     Base.metadata.create_all(bind=test_engine)
     yield
     Base.metadata.drop_all(bind=test_engine)
 
 
-@pytest.fixture
-def client(setup_test_db) -> TestClient:
-    """FastAPI TestClient fixture with isolated in-memory database."""
+def _create_test_client(headers: Dict[str, str] = None) -> TestClient:
+    """Create a TestClient with database dependency override."""
     def override_get_db():
         db = TestingSessionLocal()
         try:
@@ -50,9 +55,82 @@ def client(setup_test_db) -> TestClient:
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
+    test_client = TestClient(app)
+    if headers:
+        test_client.headers.update(headers)
+    return test_client
+
+
+@pytest.fixture
+def client(setup_test_db) -> TestClient:
+    """FastAPI TestClient fixture with isolated in-memory database."""
+    return _create_test_client()
+
+
+@pytest.fixture
+def test_user(setup_test_db) -> User:
+    """Create a test user in the database."""
+    db = TestingSessionLocal()
+    try:
+        user = User(
+            id="test-user-123",
+            email="test@example.com",
+            hashed_password="hashed_password",
+            role="user",
+            is_active=True,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def test_admin(setup_test_db) -> User:
+    """Create a test admin user in the database."""
+    db = TestingSessionLocal()
+    try:
+        admin = User(
+            id="test-admin-123",
+            email="admin@example.com",
+            hashed_password="hashed_password",
+            role="admin",
+            is_active=True,
+        )
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+        return admin
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def auth_headers(test_user: User) -> Dict[str, str]:
+    """Generate authentication headers for a test user."""
+    access_token = create_access_token(test_user.id)
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+@pytest.fixture
+def admin_headers(test_admin: User) -> Dict[str, str]:
+    """Generate authentication headers for a test admin."""
+    access_token = create_access_token(test_admin.id)
+    return {"Authorization": f"Bearer {access_token}"}
+
+
+@pytest.fixture
+def auth_client(auth_headers: Dict[str, str]) -> TestClient:
+    """TestClient with authentication headers pre-configured."""
+    return _create_test_client(auth_headers)
+
+
+@pytest.fixture
+def admin_client(admin_headers: Dict[str, str]) -> TestClient:
+    """TestClient with admin authentication headers pre-configured."""
+    return _create_test_client(admin_headers)
 
 
 @pytest.fixture

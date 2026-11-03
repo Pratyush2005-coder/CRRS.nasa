@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import api_router
 from app.core.config import settings
 from app.core.database import init_db
+from app.core.rate_limiting import setup_rate_limiting
 
 
 @asynccontextmanager
@@ -26,6 +27,9 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     lifespan=lifespan,
 )
+
+# Setup rate limiting
+setup_rate_limiting(app)
 
 # Configure Cross-Origin Resource Sharing (CORS) for React frontend integration
 app.add_middleware(

@@ -2,10 +2,14 @@
 
 from datetime import date, datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.core.rate_limiting import rotation_coordinate_rate_limit
+from app.models.user import User
+from app.models.farm import Farm
 from app.schemas.rotation import (
     RotationRequest,
     FarmRotationRequest,
@@ -22,6 +26,42 @@ from app.services.rotation_engine import rotation_engine
 from app.services.farm_service import farm_service
 
 router = APIRouter()
+
+
+def _authorize_farm_access(
+    farm: Farm,
+    current_user: User,
+    is_admin: bool,
+) -> None:
+    """
+    Authorize farm access based on ownership and admin status.
+
+    Args:
+        farm: The farm to check access for.
+        current_user: The authenticated user.
+        is_admin: Whether the user has admin role.
+
+    Raises:
+        HTTPException: 404 if farm is not accessible (to avoid enumeration).
+    """
+    if is_admin:
+        # Admins can access all farms, including legacy farms with NULL owner_id
+        return
+
+    # Normal users can only access farms they own
+    if farm.owner_id is None:
+        # Legacy farms with NULL owner_id are not accessible to normal users
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Farm profile with ID '{farm.id}' was not found.",
+        )
+
+    if farm.owner_id != current_user.id:
+        # Users cannot access other users' farms
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Farm profile with ID '{farm.id}' was not found.",
+        )
 
 
 # -------------------------------------------------------------------------
@@ -50,34 +90,36 @@ def _get_default_climate_years() -> tuple[int, int]:
         "agronomic heuristics. Returns 4 distinct strategy variants with transparent evidence reporting."
     ),
 )
+@rotation_coordinate_rate_limit()
 async def generate_rotation(
-    request: RotationRequest,
+    request: Request,
+    rotation_request: RotationRequest,
 ) -> RotationRecommendation:
     """Generate rotation recommendation from coordinates and optional farm context."""
     # Validate user-provided climate years BEFORE applying defaults
     today = date.today()
-    if request.climate_start_year is not None:
-        if request.climate_start_year < 1983 or request.climate_start_year > today.year - 1:
+    if rotation_request.climate_start_year is not None:
+        if rotation_request.climate_start_year < 1983 or rotation_request.climate_start_year > today.year - 1:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"climate_start_year must be between 1983 and {today.year - 1} (NASA POWER data availability).",
             )
-    if request.climate_end_year is not None:
-        if request.climate_end_year < 1983 or request.climate_end_year > today.year - 1:
+    if rotation_request.climate_end_year is not None:
+        if rotation_request.climate_end_year < 1983 or rotation_request.climate_end_year > today.year - 1:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"climate_end_year must be between 1983 and {today.year - 1} (NASA POWER data availability).",
             )
-    if (request.climate_start_year is not None and request.climate_end_year is not None
-            and request.climate_start_year > request.climate_end_year):
+    if (rotation_request.climate_start_year is not None and rotation_request.climate_end_year is not None
+            and rotation_request.climate_start_year > rotation_request.climate_end_year):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="climate_start_year cannot be after climate_end_year.",
         )
 
     # Determine climate years (apply defaults only where None)
-    start_year = request.climate_start_year
-    end_year = request.climate_end_year
+    start_year = rotation_request.climate_start_year
+    end_year = rotation_request.climate_end_year
     if start_year is None or end_year is None:
         default_start, default_end = _get_default_climate_years()
         if start_year is None:
@@ -86,7 +128,7 @@ async def generate_rotation(
             end_year = default_end
 
     try:
-        recommendation = await rotation_engine.generate_recommendation(request)
+        recommendation = await rotation_engine.generate_recommendation(rotation_request)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -113,15 +155,19 @@ async def generate_rotation(
     description=(
         "Generate rotation recommendations using an existing farm profile's coordinates, "
         "soil characteristics, irrigation type, and crop history. "
-        "Farm profile fields override request body where applicable."
+        "Farm profile fields override request body where applicable. "
+        "Requires farm ownership or admin access."
     ),
 )
 async def generate_farm_rotation(
     farm_id: str,
     request: FarmRotationRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> RotationRecommendation:
-    """Generate rotation recommendation from existing farm profile."""
+    """Generate rotation recommendation from existing farm profile with ownership authorization."""
+    is_admin = current_user.role == "admin"
+
     # Fetch farm profile
     farm = farm_service.get_farm_by_id(db=db, farm_id=farm_id)
     if not farm:
@@ -129,6 +175,9 @@ async def generate_farm_rotation(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Farm profile with ID '{farm_id}' was not found.",
         )
+
+    # Authorize farm access
+    _authorize_farm_access(farm, current_user, is_admin)
 
     # Verify farm_id matches
     if request.farm_id != farm_id:

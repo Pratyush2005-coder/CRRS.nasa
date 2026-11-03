@@ -2,10 +2,14 @@
 
 from datetime import date
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.api.deps import get_current_user
+from app.core.rate_limiting import climate_analysis_rate_limit
+from app.models.user import User
+from app.models.farm import Farm
 from app.schemas.climate_analyzer import ClimateIntelligenceReport
 from app.services.climate_analyzer import climate_analyzer_service
 from app.services.farm_service import farm_service
@@ -48,7 +52,9 @@ def _validate_date_bounds(start_date: date, end_date: date, max_days: int = 366)
         "data completeness evaluation, and crop suitability assessments."
     ),
 )
+@climate_analysis_rate_limit()
 async def get_climate_analysis(
+    request: Request,
     latitude: float = Query(
         ...,
         ge=-90.0,
@@ -98,7 +104,9 @@ async def get_climate_analysis(
     summary="Get NASA Climate Intelligence Report (Alias)",
     include_in_schema=False,
 )
+@climate_analysis_rate_limit()
 async def get_climate_intelligence_alias(
+    request: Request,
     latitude: float = Query(..., ge=-90.0, le=90.0),
     longitude: float = Query(..., ge=-180.0, le=180.0),
     start_date: date = Query(...),
@@ -107,6 +115,7 @@ async def get_climate_intelligence_alias(
 ) -> ClimateIntelligenceReport:
     """Alias for /climate/analysis."""
     return await get_climate_analysis(
+        request=request,
         latitude=latitude,
         longitude=longitude,
         start_date=start_date,
@@ -122,7 +131,8 @@ async def get_climate_intelligence_alias(
     summary="Get Farm-Specific Climate Intelligence Report",
     description=(
         "Retrieve NASA POWER climate intelligence directly for a registered farm's coordinates. "
-        "Links farm profile information directly with satellite reanalyses."
+        "Links farm profile information directly with satellite reanalyses. "
+        "Requires farm ownership or admin access."
     ),
 )
 async def get_farm_climate_analysis(
@@ -142,16 +152,26 @@ async def get_farm_climate_analysis(
         description="Optional crop ID (defaults to farm's current_crop if matching catalog ID)",
     ),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ClimateIntelligenceReport:
-    """Fetch farm coordinates and compute climate intelligence report."""
+    """Fetch farm coordinates and compute climate intelligence report with ownership authorization."""
     _validate_date_bounds(start_date=start_date, end_date=end_date)
 
+    is_admin = current_user.role == "admin"
     farm = farm_service.get_farm_by_id(db=db, farm_id=farm_id)
     if not farm:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Farm profile with ID '{farm_id}' was not found.",
         )
+
+    # Authorize farm access
+    if not is_admin:
+        if farm.owner_id is None or farm.owner_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Farm profile with ID '{farm_id}' was not found.",
+            )
 
     # Determine crop filter: query param overrides, fallback to matching current_crop
     target_crop = crop_id

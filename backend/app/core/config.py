@@ -1,6 +1,7 @@
 """Application configuration and scientific parameter metadata."""
 
 from typing import Dict, List
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -121,6 +122,33 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
     ]
+
+    # Authentication Configuration
+    # SECURITY: SECRET_KEY must be set via environment variable in production.
+    # No default provided to fail safely if missing in production.
+    SECRET_KEY: str
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
+    # Rate Limiting Configuration
+    # Set to True ONLY when running behind a trusted reverse proxy (nginx, ALB, Cloudflare, etc.)
+    # that properly sets X-Forwarded-For header. Never enable this when directly exposed.
+    BEHIND_TRUSTED_PROXY: bool = False
+
+    @field_validator("ACCESS_TOKEN_EXPIRE_MINUTES")
+    @classmethod
+    def _validate_access_token_expire(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be positive")
+        return v
+
+    @field_validator("REFRESH_TOKEN_EXPIRE_DAYS")
+    @classmethod
+    def _validate_refresh_token_expire(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("REFRESH_TOKEN_EXPIRE_DAYS must be positive")
+        return v
 
 
 settings = Settings()
