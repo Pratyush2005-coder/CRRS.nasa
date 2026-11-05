@@ -1,0 +1,4 @@
+season,rainfall_mm,temperature_c,selected
+Kharif,996,28.6,True
+Rabi,245,21.5,True
+Zaid,185,31.5,False
