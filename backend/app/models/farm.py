@@ -7,9 +7,11 @@ from sqlalchemy import (
     Date,
     DateTime,
     Float,
+    ForeignKey,
     JSON,
     String,
 )
+from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
@@ -123,3 +125,11 @@ class Farm(Base):
         nullable=False,
         doc="UTC timestamp when farm profile was last updated",
     )
+    owner_id = Column(
+        String(36),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Foreign key to user who owns this farm (nullable for legacy farms)",
+    )
+    owner = relationship("User", back_populates="farms", foreign_keys=[owner_id])

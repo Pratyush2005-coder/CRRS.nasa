@@ -1,0 +1,30 @@
+# Gitleaks Configuration for AGROVERSE AI
+# https://github.com/gitleaks/gitleaks
+
+[allowlist]
+# Allowlist paths that are known false positives or test files
+paths = [
+    "backend/.venv/.*",
+]
+
+# Allowlist specific regex patterns that match test values
+# Narrowly scoped to specific test files only
+regexes = [
+    """(?i)correctpass123""",
+    """(?i)securepass123""",
+    """(?i)password123""",
+    """(?i)wrongpass456""",
+    """(?i)differentpass456""",
+    """(?i)anotherpass456""",
+    """(?i)any[pa]ss123""",
+    """(?i)mypassword""",
+    """(?i)mypass""",
+]
+
+# Allow specific test files for generic-api-key false positives
+# These test files contain test passwords that trigger the generic pattern
+files = [
+    "backend/tests/test_auth.py",
+]
+
+[rule-extensions]

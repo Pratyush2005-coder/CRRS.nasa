@@ -14,8 +14,12 @@ if str(backend_dir) not in sys.path:
 from app.main import app  # noqa: E402
 
 # Disable rate limiting for tests
-from app.core.rate_limiting import limiter
-limiter.enabled = False
+from app.core.rate_limiting import get_limiter
+get_limiter().enabled = False
+
+
+# Import rate limiting fixtures
+from tests.fixtures.rate_limiting import reset_rate_limiter  # noqa: F401
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -40,6 +44,7 @@ def setup_test_db():
     """Create fresh database tables before each test and drop afterwards."""
     import app.models.farm  # noqa: F401
     import app.models.user  # noqa: F401
+    import app.models.login_attempt  # noqa: F401
     Base.metadata.create_all(bind=test_engine)
     yield
     Base.metadata.drop_all(bind=test_engine)
@@ -70,12 +75,13 @@ def client(setup_test_db) -> TestClient:
 @pytest.fixture
 def test_user(setup_test_db) -> User:
     """Create a test user in the database."""
+    from app.core.security import hash_password
     db = TestingSessionLocal()
     try:
         user = User(
             id="test-user-123",
             email="test@example.com",
-            hashed_password="hashed_password",
+            hashed_password=hash_password("password123"),
             role="user",
             is_active=True,
         )

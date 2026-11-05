@@ -49,3 +49,7 @@ Thumbs.db
 *.sqlite3
 backend/data/
 data/
+
+# Security tooling binaries
+gitleaks.exe
+gitleaks.zip

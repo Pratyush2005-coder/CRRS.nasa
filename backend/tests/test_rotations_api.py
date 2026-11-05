@@ -212,6 +212,7 @@ def mock_farm():
         crop_history=[],
         created_at=date.today(),
         updated_at=date.today(),
+        owner_id="test-user-123",
     )
 
 
@@ -363,7 +364,7 @@ def test_generate_rotation_value_error(valid_rotation_request):
 # POST /api/farms/{farm_id}/rotations Tests
 # -------------------------------------------------------------------------
 
-def test_generate_farm_rotation_success(mock_farm, mock_climate_report):
+def test_generate_farm_rotation_success(auth_client: TestClient, mock_farm, mock_climate_report):
     """Test successful rotation generation from farm profile."""
     farm_id = mock_farm.id
 
@@ -421,7 +422,7 @@ def test_generate_farm_rotation_success(mock_farm, mock_climate_report):
                     "max_cycle_years": 2,
                     "exclude_crops": [],
                 }
-                response = client.post(f"/api/farms/{farm_id}/rotations", json=request)
+                response = auth_client.post(f"/api/farms/{farm_id}/rotations", json=request)
 
     assert response.status_code == 200
     data = response.json()
@@ -429,7 +430,7 @@ def test_generate_farm_rotation_success(mock_farm, mock_climate_report):
     assert data["latitude"] == mock_farm.latitude
 
 
-def test_generate_farm_rotation_farm_not_found():
+def test_generate_farm_rotation_farm_not_found(auth_client: TestClient):
     """Test farm not found returns 404."""
     farm_id = "00000000-0000-0000-0000-000000000000"
 
@@ -437,13 +438,13 @@ def test_generate_farm_rotation_farm_not_found():
         mock_get_farm.return_value = None
 
         request = {"farm_id": farm_id, "max_cycle_years": 2}
-        response = client.post(f"/api/farms/{farm_id}/rotations", json=request)
+        response = auth_client.post(f"/api/farms/{farm_id}/rotations", json=request)
 
     assert response.status_code == 404
     assert "not found" in response.json()["detail"]
 
 
-def test_generate_farm_rotation_mismatched_farm_id(mock_farm):
+def test_generate_farm_rotation_mismatched_farm_id(auth_client: TestClient, mock_farm):
     """Test mismatched farm_id returns 422."""
     farm_id = mock_farm.id
 
@@ -454,13 +455,13 @@ def test_generate_farm_rotation_mismatched_farm_id(mock_farm):
             "farm_id": "different-farm-id",
             "max_cycle_years": 2,
         }
-        response = client.post(f"/api/farms/{farm_id}/rotations", json=request)
+        response = auth_client.post(f"/api/farms/{farm_id}/rotations", json=request)
 
     assert response.status_code == 422
     assert "must match path parameter" in response.json()["detail"]
 
 
-def test_generate_farm_rotation_invalid_climate_years(mock_farm):
+def test_generate_farm_rotation_invalid_climate_years(auth_client: TestClient, mock_farm):
     """Test invalid climate years for farm rotation."""
     farm_id = mock_farm.id
 
@@ -472,7 +473,7 @@ def test_generate_farm_rotation_invalid_climate_years(mock_farm):
             "max_cycle_years": 2,
             "climate_start_year": 1980,
         }
-        response = client.post(f"/api/farms/{farm_id}/rotations", json=request)
+        response = auth_client.post(f"/api/farms/{farm_id}/rotations", json=request)
 
     assert response.status_code == 422
 
@@ -645,4 +646,231 @@ def test_catalog_response_schema_compliance():
     for template in data["strategy_templates"].values():
         assert isinstance(template["name"], str)
         assert isinstance(template["description"], str)
-        assert template["evidence_level"] in ["verified", "heuristic", "insufficient_data"]
+        assert template["evidence_level"] in ["verified", "heuristic", "insufficient_data"]# Farm-specific rotation authorization tests
+
+
+def test_generate_farm_rotation_cross_user_returns_404(auth_client: TestClient, admin_client: TestClient, mock_climate_report):
+    """User A cannot generate rotation for User B's farm (cross-user 404)."""
+    # Admin creates a real farm in the database
+    farm_payload = {
+        "name": "Admin Rotation Farm",
+        "latitude": 22.5726,
+        "longitude": 88.3639,
+        "total_area_hectares": 10.0,
+        "soil_type": "clay_loam",
+        "primary_irrigation": "canal",
+        "current_crop": "Rice",
+    }
+    farm_resp = admin_client.post("/api/farms", json=farm_payload)
+    assert farm_resp.status_code == 201
+    farm_id = farm_resp.json()["id"]
+
+    with patch("app.services.climate_analyzer.climate_analyzer_service.generate_report",
+               new_callable=AsyncMock) as mock_climate:
+        mock_climate.return_value = mock_climate_report
+
+        # Create a minimal valid strategy for primary_strategy
+        from app.schemas.rotation import RotationStrategy, StrategyType, EvidenceLevel, EvidenceReport
+        from app.schemas.rotation import FallowStep, FallowReason
+
+        empty_strategy = RotationStrategy(
+            strategy_type=StrategyType.COMPOSITE,
+            name="Composite Multi-Factor",
+            description="Test",
+            evidence_level=EvidenceLevel.HEURISTIC,
+            sequence=[FallowStep(step_type="fallow", slot="y1_aman", reason=FallowReason.NO_VALID_CROP)],
+            total_years=2,
+            planted_count=0,
+            fallow_count=6,
+            thermal_suitability_score=0.0,
+            water_suitability_score=0.0,
+            family_diversification_score=0.0,
+            nitrogen_sequence_score=0.0,
+            root_depth_score=0.0,
+            irrigation_feasibility_score=0.0,
+            composite_score=0.0,
+            evidence_report=EvidenceReport(
+                counts={r: {"verified": 0, "heuristic": 0, "insufficient_data": 0} for r in [
+                    "thermal_suitability", "water_suitability", "botanical_family_diversification",
+                    "nitrogen_role_sequence", "root_depth_alternation", "irrigation_feasibility"
+                ]},
+                verified_coverage_pct=0.0,
+            ),
+        )
+
+        with patch("app.api.routes.rotations.rotation_engine.generate_recommendation_from_farm") as mock_gen:
+            mock_gen.return_value = RotationRecommendation(
+                farm_id=farm_id,
+                latitude=22.5726,
+                longitude=88.3639,
+                analysis_date=date.today(),
+                climate_summary={},
+                strategies=[],
+                primary_strategy=empty_strategy,
+                generated_at="2026-11-03T12:00:00Z",
+            )
+
+            request = {
+                "farm_id": farm_id,
+                "max_cycle_years": 2,
+                "exclude_crops": [],
+            }
+            # User A tries to generate rotation for Admin's farm
+            response = auth_client.post(f"/api/farms/{farm_id}/rotations", json=request)
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_generate_farm_rotation_legacy_user_returns_404(auth_client: TestClient, mock_climate_report):
+    """Normal user receives 404 when generating rotation for legacy farm (NULL owner_id)."""
+    from app.models.farm import Farm
+    from tests.conftest import TestingSessionLocal
+
+    db = TestingSessionLocal()
+    try:
+        legacy_farm = Farm(
+            id="legacy-farm-rotation-001",
+            name="Legacy Rotation Farm",
+            latitude=22.5726,
+            longitude=88.3639,
+            total_area_hectares=10.0,
+            soil_type="clay_loam",
+            primary_irrigation="canal",
+            current_crop="Rice",
+            owner_id=None,
+        )
+        db.add(legacy_farm)
+        db.commit()
+        db.refresh(legacy_farm)
+        legacy_farm_id = legacy_farm.id
+    finally:
+        db.close()
+
+    with patch("app.services.climate_analyzer.climate_analyzer_service.generate_report",
+               new_callable=AsyncMock) as mock_climate:
+        mock_climate.return_value = mock_climate_report
+
+        from app.schemas.rotation import RotationStrategy, StrategyType, EvidenceLevel, EvidenceReport
+        from app.schemas.rotation import FallowStep, FallowReason
+
+        empty_strategy = RotationStrategy(
+            strategy_type=StrategyType.COMPOSITE,
+            name="Composite Multi-Factor",
+            description="Test",
+            evidence_level=EvidenceLevel.HEURISTIC,
+            sequence=[FallowStep(step_type="fallow", slot="y1_aman", reason=FallowReason.NO_VALID_CROP)],
+            total_years=2,
+            planted_count=0,
+            fallow_count=6,
+            thermal_suitability_score=0.0,
+            water_suitability_score=0.0,
+            family_diversification_score=0.0,
+            nitrogen_sequence_score=0.0,
+            root_depth_score=0.0,
+            irrigation_feasibility_score=0.0,
+            composite_score=0.0,
+            evidence_report=EvidenceReport(
+                counts={r: {"verified": 0, "heuristic": 0, "insufficient_data": 0} for r in [
+                    "thermal_suitability", "water_suitability", "botanical_family_diversification",
+                    "nitrogen_role_sequence", "root_depth_alternation", "irrigation_feasibility"
+                ]},
+                verified_coverage_pct=0.0,
+            ),
+        )
+
+        with patch("app.api.routes.rotations.rotation_engine.generate_recommendation_from_farm") as mock_gen:
+            mock_gen.return_value = RotationRecommendation(
+                farm_id=legacy_farm_id,
+                latitude=22.5726,
+                longitude=88.3639,
+                analysis_date=date.today(),
+                climate_summary={},
+                strategies=[],
+                primary_strategy=empty_strategy,
+                generated_at="2026-11-03T12:00:00Z",
+            )
+
+            request = {
+                "farm_id": legacy_farm_id,
+                "max_cycle_years": 2,
+                "exclude_crops": [],
+            }
+            response = auth_client.post(f"/api/farms/{legacy_farm_id}/rotations", json=request)
+
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
+def test_admin_can_access_user_rotation(auth_client: TestClient, admin_client: TestClient, mock_climate_report):
+    """Admin can generate rotation for another user's farm."""
+    # User creates a farm
+    farm_payload = {
+        "name": "User Rotation Farm",
+        "latitude": 22.5726,
+        "longitude": 88.3639,
+        "total_area_hectares": 10.0,
+        "soil_type": "clay_loam",
+        "primary_irrigation": "canal",
+        "current_crop": "Rice",
+    }
+    farm_resp = auth_client.post("/api/farms", json=farm_payload)
+    assert farm_resp.status_code == 201
+    farm_id = farm_resp.json()["id"]
+
+    with patch("app.services.climate_analyzer.climate_analyzer_service.generate_report",
+               new_callable=AsyncMock) as mock_climate:
+        mock_climate.return_value = mock_climate_report
+
+        from app.schemas.rotation import RotationStrategy, StrategyType, EvidenceLevel, EvidenceReport
+        from app.schemas.rotation import FallowStep, FallowReason
+
+        empty_strategy = RotationStrategy(
+            strategy_type=StrategyType.COMPOSITE,
+            name="Composite Multi-Factor",
+            description="Test",
+            evidence_level=EvidenceLevel.HEURISTIC,
+            sequence=[FallowStep(step_type="fallow", slot="y1_aman", reason=FallowReason.NO_VALID_CROP)],
+            total_years=2,
+            planted_count=0,
+            fallow_count=6,
+            thermal_suitability_score=0.0,
+            water_suitability_score=0.0,
+            family_diversification_score=0.0,
+            nitrogen_sequence_score=0.0,
+            root_depth_score=0.0,
+            irrigation_feasibility_score=0.0,
+            composite_score=0.0,
+            evidence_report=EvidenceReport(
+                counts={r: {"verified": 0, "heuristic": 0, "insufficient_data": 0} for r in [
+                    "thermal_suitability", "water_suitability", "botanical_family_diversification",
+                    "nitrogen_role_sequence", "root_depth_alternation", "irrigation_feasibility"
+                ]},
+                verified_coverage_pct=0.0,
+            ),
+        )
+
+        with patch("app.api.routes.rotations.rotation_engine.generate_recommendation_from_farm") as mock_gen:
+            mock_gen.return_value = RotationRecommendation(
+                farm_id=farm_id,
+                latitude=22.5726,
+                longitude=88.3639,
+                analysis_date=date.today(),
+                climate_summary={},
+                strategies=[],
+                primary_strategy=empty_strategy,
+                generated_at="2026-11-03T12:00:00Z",
+            )
+
+            request = {
+                "farm_id": farm_id,
+                "max_cycle_years": 2,
+                "exclude_crops": [],
+            }
+            # Admin generates rotation for User's farm
+            response = admin_client.post(f"/api/farms/{farm_id}/rotations", json=request)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["farm_id"] == farm_id
+    assert data["latitude"] == 22.5726

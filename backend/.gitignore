@@ -1,0 +1,39 @@
+# Backend-specific ignores (supplements root .gitignore)
+
+# Local database files
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+
+# Environment files (root .gitignore covers .env, but explicit for clarity)
+.env
+.env.local
+.env.*.local
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Alembic (migration versions are tracked, but cache not)
+alembic/__pycache__/

@@ -423,7 +423,7 @@ def test_api_get_climate_analysis_validation_errors(client: TestClient):
     assert r_lat.status_code == 422
 
 
-def test_api_get_farm_climate_analysis(client: TestClient):
+def test_api_get_farm_climate_analysis(auth_client: TestClient):
     """GET /api/farms/{farm_id}/climate-analysis should fetch farm coords and compute report."""
     # 1. Create a test farm profile
     farm_payload = {
@@ -435,7 +435,7 @@ def test_api_get_farm_climate_analysis(client: TestClient):
         "primary_irrigation": "canal",
         "current_crop": "Wheat",
     }
-    farm_resp = client.post("/api/farms", json=farm_payload)
+    farm_resp = auth_client.post("/api/farms", json=farm_payload)
     assert farm_resp.status_code == 201
     farm_id = farm_resp.json()["id"]
 
@@ -448,7 +448,7 @@ def test_api_get_farm_climate_analysis(client: TestClient):
     ) as mock_fetch:
         mock_fetch.return_value = mock_resp
 
-        response = client.get(
+        response = auth_client.get(
             f"/api/farms/{farm_id}/climate-analysis",
             params={
                 "start_date": "2023-01-01",
@@ -463,11 +463,93 @@ def test_api_get_farm_climate_analysis(client: TestClient):
         assert data["gdd_summary"][0]["crop_id"] == "wheat"
 
     # Non-existent farm returns 404
-    r_404 = client.get(
+    r_404 = auth_client.get(
         "/api/farms/00000000-0000-0000-0000-000000000000/climate-analysis",
         params={"start_date": "2023-01-01", "end_date": "2023-01-10"},
     )
     assert r_404.status_code == 404
+
+
+def test_get_farm_climate_analysis_cross_user_returns_404(auth_client: TestClient, admin_client: TestClient):
+    """User A cannot access User B's farm climate analysis (cross-user 404)."""
+    # Admin creates a farm
+    farm_payload = {
+        "name": "Admin's Farm",
+        "latitude": 23.2324,
+        "longitude": 87.8615,
+        "total_area_hectares": 18.0,
+        "soil_type": "clay_loam",
+        "primary_irrigation": "canal",
+        "current_crop": "Wheat",
+    }
+    farm_resp = admin_client.post("/api/farms", json=farm_payload)
+    assert farm_resp.status_code == 201
+    farm_id = farm_resp.json()["id"]
+
+    mock_resp = get_mock_climate_response()
+
+    with patch.object(
+        nasa_power_service,
+        "fetch_climate_data",
+        new_callable=AsyncMock,
+    ) as mock_fetch:
+        mock_fetch.return_value = mock_resp
+
+        # User A tries to access Admin's farm climate analysis
+        response = auth_client.get(
+            f"/api/farms/{farm_id}/climate-analysis",
+            params={
+                "start_date": "2023-01-01",
+                "end_date": "2023-01-10",
+            },
+        )
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+
+def test_get_farm_climate_analysis_legacy_user_returns_404(auth_client: TestClient):
+    """Normal user receives 404 when accessing legacy farm (NULL owner_id) climate analysis."""
+    from app.models.farm import Farm
+    from tests.conftest import TestingSessionLocal
+
+    db = TestingSessionLocal()
+    try:
+        legacy_farm = Farm(
+            id="legacy-farm-climate-001",
+            name="Legacy Climate Farm",
+            latitude=23.2324,
+            longitude=87.8615,
+            total_area_hectares=18.0,
+            soil_type="clay_loam",
+            primary_irrigation="canal",
+            current_crop="Wheat",
+            owner_id=None,
+        )
+        db.add(legacy_farm)
+        db.commit()
+        db.refresh(legacy_farm)
+        legacy_farm_id = legacy_farm.id
+    finally:
+        db.close()
+
+    mock_resp = get_mock_climate_response()
+
+    with patch.object(
+        nasa_power_service,
+        "fetch_climate_data",
+        new_callable=AsyncMock,
+    ) as mock_fetch:
+        mock_fetch.return_value = mock_resp
+
+        response = auth_client.get(
+            f"/api/farms/{legacy_farm_id}/climate-analysis",
+            params={
+                "start_date": "2023-01-01",
+                "end_date": "2023-01-10",
+            },
+        )
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
 
 
 def test_upstream_nasa_failure_and_timeout(client: TestClient):

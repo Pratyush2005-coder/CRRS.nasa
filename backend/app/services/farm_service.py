@@ -28,10 +28,10 @@ class FarmService:
             ]
         return prepared
 
-    def create_farm(self, db: Session, farm_in: FarmCreate) -> Farm:
-        """Create and persist a new farm profile."""
+    def create_farm(self, db: Session, farm_in: FarmCreate, owner_id: str) -> Farm:
+        """Create and persist a new farm profile owned by the specified user."""
         data = self._prepare_farm_data(farm_in.model_dump(), farm_in)
-        db_farm = Farm(**data)
+        db_farm = Farm(**data, owner_id=owner_id)
         db.add(db_farm)
         db.commit()
         db.refresh(db_farm)
@@ -48,9 +48,17 @@ class FarmService:
         limit: int = 20,
         search: Optional[str] = None,
         soil_type: Optional[str] = None,
+        owner_id: Optional[str] = None,
     ) -> Tuple[List[Farm], int]:
-        """List farm profiles with pagination, search, and soil type filtering."""
+        """List farm profiles with pagination, search, and soil type filtering.
+
+        If owner_id is provided, only return farms owned by that user.
+        If owner_id is None (admin), return all farms including legacy farms with NULL owner_id.
+        """
         query = db.query(Farm)
+
+        if owner_id is not None:
+            query = query.filter(Farm.owner_id == owner_id)
 
         if search:
             search_pattern = f"%{search.strip()}%"

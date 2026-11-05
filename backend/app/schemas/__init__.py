@@ -91,6 +91,16 @@ from app.schemas.rotation import (
     get_planted_steps,
 )
 
+from app.schemas.user import (
+    UserBase,
+    UserCreate,
+    UserLogin,
+    TokenResponse,
+    UserResponse,
+)
+
+from app.core.enums import UserRole
+
 __all__ = [
     "HealthResponse",
     "ClimateResponse",
@@ -165,4 +175,11 @@ __all__ = [
     "is_planted",
     "is_fallow",
     "get_planted_steps",
+    # User schemas
+    "UserBase",
+    "UserCreate",
+    "UserLogin",
+    "TokenResponse",
+    "UserResponse",
+    "UserRole",
 ]

@@ -192,6 +192,7 @@ class FarmResponse(FarmBase):
     id: str = Field(..., description="Unique UUID identifier")
     created_at: datetime = Field(..., description="UTC creation timestamp")
     updated_at: datetime = Field(..., description="UTC update timestamp")
+    owner_id: Optional[str] = Field(None, description="User ID of farm owner")
 
 
 class FarmListResponse(BaseModel):
