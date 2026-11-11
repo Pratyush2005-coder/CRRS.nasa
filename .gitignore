@@ -53,3 +53,26 @@ data/
 # Security tooling binaries
 gitleaks.exe
 gitleaks.zip
+
+# Frontend build outputs
+build/
+dist/
+wheels/
+*.egg-info
+
+# Frontend dependencies
+node_modules/
+frontend/node_modules/
+
+# Frontend environment
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Vite
+frontend/.vite/
+frontend/dist/
+
+# TypeScript
+*.tsbuildinfo
+frontend/*.tsbuildinfo
