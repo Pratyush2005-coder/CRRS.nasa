@@ -12,7 +12,6 @@ import {
 } from 'recharts'
 import { MapContainer, TileLayer, Marker, Popup, Polygon } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
-import L from 'leaflet'
 import 'leaflet-draw/dist/leaflet.draw.css'
 import 'leaflet-draw'
 import FarmDraw from './FarmDraw'
@@ -92,13 +91,10 @@ const cropCategories = [
 function App() {
   // 🟢 ১. লগইন স্ট্যাটাস চেক করার জন্য নতুন স্টেট
   const [isLoggedIn, setIsLoggedIn] = useState(false)
-
-  const [activeMenu, setActiveMenu] = useState('dashboard')
   const [profileMessage, setProfileMessage] = useState('')
   const [soil, setSoil] = useState('')
   const [water, setWater] = useState('')
   const [recommendation, setRecommendation] = useState('')
-  const [rotationSaved, setRotationSaved] = useState(false)
   const [isLoadingRecommendation, setIsLoadingRecommendation] = useState(false)
   const [advisorQuestion, setAdvisorQuestion] = useState('')
   const [advisorAnswer, setAdvisorAnswer] = useState('')
@@ -117,7 +113,15 @@ function App() {
   const [soilPHLoading, setSoilPHLoading] = useState(false);
   const [soilPHError, setSoilPHError] = useState("");
   const [temperature, setTemperature] = useState('Awaiting Data')
+  const [rainfall, setRainfall] = useState('Awaiting Data')
+  const [humidity, setHumidity] = useState('Awaiting Data')
+  const [solarRadiation, setSolarRadiation] = useState('Awaiting Data')
+  const [climateMessage, setClimateMessage] = useState('')
+  const [climateGraphData, setClimateGraphData] = useState([])
+  const latitude = 23.3316
+  const longitude = 86.3759
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const savedClimate = localStorage.getItem('agroverseClimate')
 
@@ -129,14 +133,9 @@ function App() {
       setSolarRadiation(climate.solarRadiation)
     }
   }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  const [rainfall, setRainfall] = useState('Awaiting Data')
-  const [humidity, setHumidity] = useState('Awaiting Data')
-  const [solarRadiation, setSolarRadiation] = useState('Awaiting Data')
-  const [climateMessage, setClimateMessage] = useState('')
-  const latitude = 23.3316
-  const longitude = 86.3759
-
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     const savedFarm = localStorage.getItem('agroverseFarm')
 
@@ -157,9 +156,9 @@ function App() {
       const rotation = JSON.parse(savedRotation)
       setNextCrop(rotation.nextCrop)
       setFollowingCrop(rotation.followingCrop)
-      setRotationSaved(true)
     }
   }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const askAdvisor = () => {
     setIsAdvisorLoading(true)
@@ -176,10 +175,6 @@ function App() {
     )
     setIsAdvisorLoading(false)
   }
-
-  const [climateGraphData, setClimateGraphData] = useState([])
-  const [selectedMonth, setSelectedMonth] = useState('all')
-  const [dailyClimateData, setDailyClimateData] = useState([])
 
   const getClimateData = async () => {
     try {
@@ -250,17 +245,9 @@ function App() {
           ? values.solar.reduce((a, b) => a + b, 0) / values.solar.length
           : 0
       }))
-      
-      setClimateGraphData(graphData)
-      const dailyData = dates.map((date) => ({
-        date,
-        temperature: parameters.T2M[date],
-        rainfall: parameters.PRECTOTCORR[date],
-        humidity: parameters.RH2M[date],
-        solar: parameters.ALLSKY_SFC_SW_DWN[date],
-      }))
 
-      setDailyClimateData(dailyData)
+      setClimateGraphData(graphData)
+
       const latestValue = (values) =>
         Object.values(values)
           .filter((value) => value !== -999)
@@ -302,8 +289,8 @@ function App() {
       setClimateMessage(
         `NASA climate data loaded successfully! Date: ${endDate.toLocaleDateString('en-GB')}`
       )
-     
-    } catch (error) {
+
+    } catch {
       setClimateMessage('Unable to load climate data. Please try again.')
     }
   }
@@ -356,7 +343,7 @@ function App() {
 
       const data = await response.json();
       setSoilPHResult(data);
-    } catch (error) {
+    } catch {
       setSoilPHError(
         "Unable to analyze soil. Backend connection is not available."
       );
@@ -380,25 +367,13 @@ function App() {
             <nav>
               <a href="#dashboard" className="active">🏠 Dashboard</a>
               <a href="#farm-profile" className="active">🌱 Farm Profile</a>
-              <a
-                href="#crop-recommendation"
-                onClick={() => setActiveMenu('crop-recommendation')}
-                className="active"
-              >
+              <a href="#crop-recommendation" className="active">
                 🌾 Crop Recommendation
               </a>
-              <a
-                href="#climate-insights"
-                onClick={() => setActiveMenu('climate-insights')}
-                className="active"
-              >
+              <a href="#climate-insights" className="active">
                 🌦️ Climate Insights
               </a>
-              <a
-                href="#crop-rotation"
-                onClick={() => setActiveMenu('crop-rotation')}
-                className="active"
-              >
+              <a href="#crop-rotation" className="active">
                 🔄 Crop Rotation
               </a>
               <a href="#farm-map" className="active">
