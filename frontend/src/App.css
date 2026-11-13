@@ -33,9 +33,10 @@ body {
 }
 
 .dashboard {
-  max-width: 1200px;
-  margin: auto;
-  padding: 55px 25px;
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 55px 25px;
 }
 
 .welcome {
@@ -303,8 +304,11 @@ body {
 }
 .ai-advisor {
   margin-top: 50px;
+  padding: 0;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
 }
-
 .ai-advisor > h2 {
   color: #20613d;
   font-size: 30px;
@@ -819,9 +823,8 @@ body {
   font-weight: 500;
 }
 .crop-recommendation {
-  padding: 35px;
+  padding: 35px 0;
 }
-
 .crop-recommendation > h2 {
   font-size: 28px;
   color: #14532d;
@@ -1171,14 +1174,14 @@ body {
   padding: 10px 15px;
   border: 2px solid #c8e6c9;
   border-radius: 12px;
-  background: #f5fff5;
+  background: transparent;
   color: #245b28;
   cursor: pointer;
   transition: 0.2s;
 }
 
 .crop-option:hover {
-  background: #e8f5e9;
+  background: rgba(232, 245, 233, 0.45);
   transform: translateY(-2px);
 }
 
@@ -1248,4 +1251,62 @@ body {
 .soil-ph-error {
   color: #d32f2f;
   margin-top: 15px;
+}
+
+/* Primary CTA for Crop Rotation */
+.crop-rotation .rotation-primary-button {
+  margin-top: 22px;
+  padding: 13px 22px;
+  background: #20613d;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.crop-rotation .rotation-primary-button:hover {
+  background: #123d2a;
+}
+
+.crop-rotation .rotation-primary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+/* Fix selection buttons in Crop Recommendation */
+.crop-recommendation .crop-option,
+.crop-recommendation .season-option {
+  background: transparent !important;
+  color: #245b28 !important;
+  border: 2px solid #c8e6c9 !important;
+}
+
+.crop-recommendation .crop-option:hover,
+.crop-recommendation .season-option:hover {
+  background: #e8f5e9 !important;
+}
+
+.crop-recommendation .crop-option.selected,
+.crop-recommendation .season-option.selected {
+  background: #2e7d32 !important;
+  color: white !important;
+  border-color: #1b5e20 !important;
+}
+.crop-rotation .profile-card > .crop-grid + h3 {
+  margin-top: 24px;
+}
+/* Dashboard feature cards that jump to their section */
+.feature-card-link {
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.feature-card-link:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.12);
+}
+
+.feature-card-link:focus-visible {
+  outline: 3px solid #22c55e;
+  outline-offset: 2px;
 }
