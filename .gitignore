@@ -1,0 +1,78 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Environment Variables
+.env
+.env.local
+
+# Testing and Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Database and SQLite
+*.db
+*.sqlite
+*.sqlite3
+backend/data/
+data/
+
+# Security tooling binaries
+gitleaks.exe
+gitleaks.zip
+
+# Frontend build outputs
+build/
+dist/
+wheels/
+*.egg-info
+
+# Frontend dependencies
+node_modules/
+frontend/node_modules/
+
+# Frontend environment
+frontend/.env
+frontend/.env.local
+frontend/.env.*.local
+
+# Vite
+frontend/.vite/
+frontend/dist/
+
+# TypeScript
+*.tsbuildinfo
+frontend/*.tsbuildinfo
